@@ -1,0 +1,57 @@
+#!/bin/bash
+
+IWAN="eth0"
+IP_WAN="192.168.1.101"
+
+IDMZ="eth1"
+IP_DNS="172.20.103.53"
+
+echo "1" > /proc/sys/net/ipv4/ip_forward
+
+
+iptables -F
+
+iptables -t nat -F
+
+iptables -P INPUT DROP
+iptables -P OUTPUT DROP
+iptables -P FORWARD DROP
+
+#ssh
+#pings entrante
+iptables -t filter -A INPUT -p icmp -i $IWAN -j ACCEPT
+iptables -t filter -A INPUT -p icmp -i $IDMZ -j ACCEPT
+
+#permitir 80 53 443 FW > WAN
+iptables -t filter -A OUTPUT -p tcp --dport 22 -o $IWAN -j ACCEPT
+iptables -t filter -A INPUT -p tcp --dport 22 -i $IWAN -j ACCEPT
+iptables -t filter -A OUTPUT -p tcp --dport 443 -o $IWAN -j ACCEPT
+iptables -t filter -A OUTPUT -p tcp  --dport 53 -o $IWAN -j ACCEPT
+iptables -t filter -A OUTPUT -p udp --dport 53 -o $IWAN -j ACCEPT
+iptables -t filter -A OUTPUT -p tcp --dport 80 -o $IWAN -j ACCEPT
+
+#permitir 80 53 443 DMZ > WAN
+iptables -t filter -A FORWARD -p icmp -i$IDMZ -o $IWAN -j ACCEPT
+iptables -t filter -A FORWARD -p tcp --dport 22 -i $IDMZ -o $IWAN -j ACCEPT
+iptables -t filter -A FORWARD -p tcp --dport 53 -i $IDMZ -o $IWAN -j ACCEPT
+iptables -t filter -A FORWARD -p udp --dport 53 -i $IDMZ -o $IWAN -j ACCEPT
+iptables -t filter -A FORWARD -p tcp --dport 80 -i $IDMZ -o $IWAN -j ACCEPT
+iptables -t filter -A FORWARD -p tcp --dport 443 -i $IDMZ -o $IWAN -j ACCEPT
+
+#permitir 53 WAN > DMZ (DNS) (-- destination ip)
+
+iptables -t filter -A FORWARD -p udp --dport 53 -i $IWAN -o $IDMZ -d $IP_DNS -j ACCEPT
+iptables -t filter -A FORWARD -p tcp --dport 53 -i $IWAN -o $IDMZ -d $IP_DNS -j ACCEPT
+
+#ACEPTAMOS LAS CONEXIONES
+iptables -t filter -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+iptables -t filter -A OUTPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+iptables -t filter -A FORWARD -m state --state ESTABLISHED,RELATED -j ACCEPT
+
+#ACEPTAMOS EL REENVIO DE PETICIONES ENTRANTES NAT 
+iptables -t nat -A POSTROUTING -o $IWAN -j SNAT --to-source $IP_WAN
+
+#REDIRECCIONAMOS LAS PETICIONES 
+
+iptables -t nat -A PREROUTING -p udp --dport 53 -i $IWAN -j DNAT --to-destination $IP_DNS
+iptables -t nat -A PREROUTING -p tcp --dport 53 -i $IWAN -j DNAT --to-destination $IP_DNS
